@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 import subprocess
 import os
 
@@ -32,11 +32,11 @@ class FFmpegGUI:
         frame = tk.Frame(self.root)
         frame.pack(fill='x', pady=5)
 
-        input_file = tk.Entry(frame, width=50)
-        input_file.pack(side='left', padx=5)
-        input_file.insert(0, "Выберите входной файл")
+        input_files = tk.Entry(frame, width=50)
+        input_files.pack(side='left', padx=5)
+        input_files.insert(0, "Выберите входные файлы")
 
-        select_input_button = tk.Button(frame, text="Выбрать файл", command=lambda: self.select_file(input_file, frame))
+        select_input_button = tk.Button(frame, text="Выбрать файлы", command=lambda: self.select_files(input_files, frame))
         select_input_button.pack(side='left')
 
         output_file = tk.Entry(frame, width=50)
@@ -55,16 +55,31 @@ class FFmpegGUI:
         save_audio_check = tk.Checkbutton(frame, text="Сохранить звуковую дорожку", variable=save_audio_var, command=self.update_command_output)
         save_audio_check.pack(side='left', padx=5)
 
-        media_info_button = tk.Button(frame, text="Медиаинфо", state=tk.DISABLED, command=lambda: self.show_media_info(input_file.get()))
+        media_info_button = tk.Button(frame, text="Медиаинфо", state=tk.DISABLED, command=lambda: self.show_media_info(input_files.get()))
         media_info_button.pack(side='left', padx=5)
 
-        self.commands.append((input_file, output_file, delete_audio_var, save_audio_var, media_info_button))
+        self.commands.append((input_files, output_file, delete_audio_var, save_audio_var, media_info_button))
 
-    def select_file(self, entry, frame):
-        file_path = filedialog.askopenfilename(filetypes=[("Video Files", "*.mp4;*.avi;*.mkv")])
-        if file_path:
+        video_codec_label = tk.Label(frame, text="Видео кодек:")
+        video_codec_label.pack(side='left', padx=5)
+
+        self.video_codec = ttk.Combobox(frame, values=["copy", "libx264", "libx265", "vp9", "mpeg4"])
+        self.video_codec.set("copy")
+        self.video_codec.pack(side='left', padx=5)
+
+        audio_codec_label = tk.Label(frame, text="Аудио кодек:")
+        audio_codec_label.pack(side='left', padx=5)
+
+        self.audio_codec = ttk.Combobox(frame, values=["copy", "aac", "mp3", "vorbis", "opus"])
+        self.audio_codec.set("copy")
+        self.audio_codec.pack(side='left', padx=5)
+
+    def select_files(self, entry, frame):
+        file_paths = filedialog.askopenfilenames(filetypes=[("Video Files", "*.mp4;*.avi;*.mkv")])
+        if file_paths:
             entry.delete(0, tk.END)
-            entry.insert(0, file_path)
+            entry.insert(0, ";".join(file_paths))
+            self.update_output_file_name(entry)
             self.update_command_output()
             media_info_button = frame.children['!button3']
             media_info_button.config(state=tk.NORMAL)
@@ -82,6 +97,16 @@ class FFmpegGUI:
             self.ffmpeg_path = folder_path
         self.update_command_output()
 
+    def update_output_file_name(self, input_entry):
+        input_files = input_entry.get().split(';')
+        if input_files:
+            input_file = input_files[0]
+            base, ext = os.path.splitext(input_file)
+            output_file = base + "_encoded" + ext
+            for command in self.commands:
+                command[1].delete(0, tk.END)
+                command[1].insert(0, output_file)
+
     def update_command_output(self):
         self.command_output.delete(1.0, tk.END)
         commands_str = self.generate_commands_str()
@@ -95,18 +120,23 @@ class FFmpegGUI:
         
         commands_str = ""
         for command in self.commands:
-            input_file = command[0].get()
+            input_files = command[0].get().split(';')
             output_file = command[1].get()
             delete_audio = command[2].get()
             save_audio = command[3].get()
 
-            cmd = f'{ffmpeg_exec} -i "{input_file}"'
-            if delete_audio:
-                cmd += " -map 0:v? -map 0:s?"
-            else:
-                cmd += " -map 0:v? -map 0:s? -map 0:a?"
-            cmd += f' "{output_file}"'
-            commands_str += cmd + "\n"
+            for input_file in input_files:
+                if not output_file:
+                    base, ext = os.path.splitext(input_file)
+                    output_file = base + "_encoded" + ext
+
+                cmd = f'{ffmpeg_exec} -i "{input_file}" -c:v {self.video_codec.get()} -c:a {self.audio_codec.get()}'
+                if delete_audio:
+                    cmd += " -map 0:v? -map 0:s?"
+                else:
+                    cmd += " -map 0:v? -map 0:s? -map 0:a?"
+                cmd += f' "{output_file}"'
+                commands_str += cmd + "\n"
 
         return commands_str
 
@@ -116,7 +146,7 @@ class FFmpegGUI:
             return
 
         with open(file_path, 'w', encoding='utf-8-sig') as f:
-            f.write("chcp 65001\n")  # Устанавливаем кодировку консоли в UTF-8
+            f.write("chcp 65001\n")
             f.write(self.command_output.get(1.0, tk.END))
             f.write("pause\n")
 
